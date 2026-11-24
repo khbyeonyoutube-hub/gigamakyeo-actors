@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f4f5fa">
+  <title>인물 보이스 배정 · 기가막혀 인생극장</title>
+  <link rel="stylesheet" href="styles.css">
+  <script defer src="app.js"></script>
+</head>
+<body>
+  <header class="site-header">
+    <div class="topbar">
+      <div class="identity">
+        <span class="brand-mark" aria-hidden="true">인</span>
+        <div>
+          <p class="brand">기가막혀 인생극장</p>
+          <h1>인물 보이스 배정</h1>
+        </div>
+      </div>
+      <div class="backup-actions">
+        <button class="button secondary" id="import-button" type="button">백업 불러오기</button>
+        <button class="button secondary" id="export-button" type="button">백업 다운로드</button>
+        <input id="import-file" type="file" accept=".json,application/json" hidden>
+      </div>
+    </div>
+  </header>
+
+  <main class="workspace">
+    <div class="navigation">
+      <div class="tablist" role="tablist" aria-label="작업 선택">
+        <button id="catalog-tab" class="tab" type="button" role="tab" aria-selected="true" aria-controls="catalog-panel" tabindex="0">전체 인물</button>
+        <button id="assign-tab" class="tab" type="button" role="tab" aria-selected="false" aria-controls="assign-panel" tabindex="-1">보이스별 배정</button>
+      </div>
+      <p class="save-note"><span aria-hidden="true"></span>이 브라우저에 저장</p>
+    </div>
+
+    <p id="status" class="status" role="status" aria-live="polite" aria-atomic="true"></p>
+    <p id="load-message" class="load-message" role="status">인물 목록을 불러오는 중입니다.</p>
+
+    <section id="catalog-panel" class="tab-panel" role="tabpanel" aria-labelledby="catalog-tab" hidden>
+      <div class="catalog-layout">
+        <section class="panel list-panel" id="catalog-list" aria-labelledby="catalog-title">
+          <div class="panel-heading">
+            <h2 id="catalog-title">전체 인물</h2>
+            <span class="count" data-count></span>
+          </div>
+        </section>
+
+        <section class="panel detail-panel" aria-labelledby="detail-title">
+          <div class="panel-heading">
+            <h2 id="detail-title">인물 정보</h2>
+          </div>
+          <p id="detail-empty" class="empty">목록에서 인물을 선택하세요.</p>
+          <div id="detail-content" class="detail-content" hidden>
+            <button id="detail-jump" class="button secondary detail-jump" type="button">목록으로</button>
+            <img id="detail-photo" class="detail-photo" alt="">
+            <div class="detail-copy">
+              <h3 id="detail-name"></h3>
+              <p id="detail-meta" class="detail-meta"></p>
+              <p id="detail-description" class="detail-description"></p>
+              <form id="detail-form">
+                <label for="detail-voice">ElevenLabs 보이스 ID</label>
+                <input id="detail-voice" type="text" autocomplete="off" spellcheck="false" placeholder="보이스 ID 입력" maxlength="256">
+                <div class="form-actions">
+                  <button class="button primary" id="detail-save" type="submit">저장</button>
+                  <button class="button secondary" id="detail-remove" type="button">배정 해제</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </section>
+      </div>
+    </section>
+
+    <section id="assign-panel" class="tab-panel" role="tabpanel" aria-labelledby="assign-tab" hidden>
+      <div class="assignment-layout">
+        <section class="panel list-panel" id="unassigned-list" aria-labelledby="unassigned-title">
+          <div class="panel-heading">
+            <h2 id="unassigned-title">미배정 인물</h2>
+            <span class="count" data-count></span>
+          </div>
+          <p class="panel-hint">인물 사진을 선택하면 아래에 입력한 보이스를 배정합니다.</p>
+        </section>
+        <section class="panel list-panel" id="assigned-list" aria-labelledby="assigned-title">
+          <div class="panel-heading">
+            <h2 id="assigned-title">이 보이스에 배정된 인물</h2>
+            <span class="count" data-count></span>
+          </div>
+          <p class="panel-hint">인물 사진을 선택하면 보이스 배정을 해제합니다.</p>
+        </section>
+      </div>
+      <div class="voice-dock">
+        <div class="voice-dock-copy">
+          <label for="batch-voice">배정할 ElevenLabs 보이스 ID</label>
+          <p id="batch-help">아래의 ID를 기준으로 오른쪽 목록을 표시합니다.</p>
+        </div>
+        <input id="batch-voice" type="text" autocomplete="off" spellcheck="false" placeholder="보이스 ID 입력" maxlength="256" aria-describedby="batch-help">
+      </div>
+    </section>
+  </main>
+
+  <template id="list-template">
+    <div class="filters">
+      <label class="search">
+        <span class="sr-only">인물 검색</span>
+        <input data-search type="search" autocomplete="off" placeholder="이름, 외모 특징, 보이스 ID 검색">
+      </label>
+      <div class="filter-groups" data-groups>
+        <details class="filter" data-gender>
+          <summary>성별 <span data-selection></span></summary>
+          <div class="filter-options" data-options></div>
+        </details>
+        <details class="filter" data-age>
+          <summary>나이대 <span data-selection></span></summary>
+          <div class="filter-options" data-options></div>
+        </details>
+        <button class="button reset" data-reset type="button" hidden>초기화</button>
+      </div>
+    </div>
+    <div data-grid class="card-grid"></div>
+    <p data-empty class="empty" hidden></p>
+    <button data-more class="button secondary more" type="button" hidden>더 보기</button>
+  </template>
+</body>
+</html>
