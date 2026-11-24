@@ -28,6 +28,9 @@ jobs:
           mkdir _site
           unzip -q actor-data.zip -d _site
           cp index.html app.js styles.css _site/
+          if [ -f voice-sync-config.js ]; then
+            cp voice-sync.js voice-sync-config.js supabase.min.js supabase-license.txt _site/
+          fi
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site
