@@ -55,8 +55,20 @@ h1 { font-size: clamp(1.3rem, 3vw, 1.65rem); letter-spacing: -.055em; line-heigh
 }
 .tab[aria-selected="true"] { background: var(--panel); color: var(--accent-dark); box-shadow: 0 1px 3px #25264a18; }
 .save-note { display: flex; align-items: center; gap: 7px; font-size: .8rem; color: var(--muted); margin: 0; }
-.save-note span { display: inline-block; width: 7px; height: 7px; background: #2a8b63; border-radius: 50%; }
-.save-note[data-unavailable] span { background: #a13c35; }
+.save-note span { display: inline-block; flex: 0 0 7px; height: 7px; background: #7b8297; border-radius: 50%; }
+.save-note[data-phase="saved"] span { background: #2a8b63; }
+.save-note[data-phase="saving"] span, .save-note[data-phase="offline"] span { background: #b67718; }
+.save-note[data-phase="failed"] span { background: #a13c35; }
+.sync-actions { display: flex; align-items: center; gap: 10px; }
+.sync-actions .button { min-height: 28px; padding: 2px 8px; font-size: .75rem; }
+.sync-panel { margin: 16px 0 0; }
+.sync-panel h2 { margin: 0; font-size: 1rem; }
+.sync-form { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; margin-top: 12px; }
+.sync-form label { display: grid; flex: 1 1 180px; max-width: 320px; gap: 4px; font-size: .8rem; font-weight: 650; }
+.sync-message { margin-top: 9px; }
+.sync-message[data-error] { color: #87312e; }
+.legacy-panel { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
+.legacy-panel p { margin: 0; }
 .status {
   margin: 0; position: fixed; top: 108px; right: max(24px, calc((100% - 1500px) / 2));
   z-index: 20; max-width: min(420px, calc(100% - 38px)); color: #23463b; background: #e6f5ec;
@@ -79,7 +91,7 @@ h2 { font-size: 1.13rem; line-height: 1.35; letter-spacing: -.045em; }
 
 .filters { margin: 12px 0; display: flex; align-items: flex-start; flex-wrap: wrap; gap: 8px; }
 .search { flex: 1 1 230px; }
-input[type="text"], input[type="search"] {
+input[type="text"], input[type="search"], input[type="email"], input[type="password"] {
   min-width: 0; width: 100%; min-height: 37px; padding: 7px 10px; border: 1px solid #cdd1e3;
   border-radius: 8px; color: var(--ink); background: #fff; font-size: .85rem;
 }

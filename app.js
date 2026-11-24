@@ -1,9 +1,8 @@
 "use strict";
 
 const byId = (id) => document.getElementById(id);
-const storageKey = "gigamakyeo-actors-voice-assignments-v1";
+const legacyStorageKey = "gigamakyeo-actors-voice-assignments-v1";
 const pageSize = 72;
-const maximumVoiceLength = 256;
 const genderLabels = { F: "여성", M: "남성" };
 const tabButtons = [byId("catalog-tab"), byId("assign-tab")];
 const detailContent = byId("detail-content");
@@ -15,6 +14,18 @@ const emptyDetail = byId("detail-empty");
 const importButton = byId("import-button");
 const exportButton = byId("export-button");
 const importFile = byId("import-file");
+const authPanel = byId("sync-panel");
+const authForm = byId("sync-form");
+const authEmail = byId("sync-email");
+const authPassword = byId("sync-password");
+const authSubmit = byId("auth-submit");
+const authModeButton = byId("auth-mode");
+const authMessage = byId("auth-message");
+const signoutButton = byId("signout-button");
+const saveNote = byId("save-note");
+const syncRetry = byId("sync-retry");
+const legacyPanel = byId("legacy-panel");
+const legacyButton = byId("legacy-import");
 const searchText = (value) => value.normalize("NFC").toLocaleLowerCase("ko");
 const isObject = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
 const currentVoice = () => batchVoice.value.trim();
@@ -26,7 +37,11 @@ let lists = [];
 let selectedId = null;
 let activeTabIndex = 0;
 let ready = false;
-let storageAvailable = true;
+let voiceSync;
+let syncState = { user: null, canEdit: false, knownIds: new Set() };
+let legacyAssignments = new Map();
+let authMode = "sign-in";
+let authBusy = false;
 let statusTimer;
 
 function announce(message, error = false) {
@@ -34,13 +49,6 @@ function announce(message, error = false) {
   status.toggleAttribute("data-error", error);
   status.textContent = message;
   statusTimer = setTimeout(() => { status.textContent = ""; }, error ? 7500 : 3500);
-}
-
-function setStorageUnavailable(note) {
-  storageAvailable = false;
-  const saveNote = document.querySelector(".save-note");
-  saveNote.setAttribute("data-unavailable", "");
-  saveNote.lastChild.textContent = note;
 }
 
 function cleanAssignments(input, strict) {
@@ -51,7 +59,7 @@ function cleanAssignments(input, strict) {
   const clean = new Map();
   let skipped = 0;
   for (const [id, value] of Object.entries(input)) {
-    if (typeof value !== "string" || !value.trim() || value.length > maximumVoiceLength) {
+    if (!isValidActorVoiceId(value)) {
       if (strict) {
         throw new Error("백업에 올바르지 않은 보이스 ID가 있습니다.");
       }
@@ -66,35 +74,123 @@ function cleanAssignments(input, strict) {
   return { clean, skipped };
 }
 
-function loadAssignments() {
+function loadLegacyAssignments() {
   try {
-    const saved = localStorage.getItem(storageKey);
+    const saved = localStorage.getItem(legacyStorageKey);
     if (saved) {
-      assignments = cleanAssignments(JSON.parse(saved), false).clean;
+      legacyAssignments = cleanAssignments(JSON.parse(saved), false).clean;
     }
-  } catch (error) {
-    if (error instanceof SyntaxError || error.name === "Error") {
-      announce("기존 배정 데이터를 읽을 수 없습니다. 백업을 불러올 수 있습니다.", true);
-    } else {
-      setStorageUnavailable("이 브라우저에서 저장할 수 없음");
+  } catch {
+    // Cloud use is independent of legacy browser storage.
+  }
+}
+
+function onSyncChange(state) {
+  const accountsChanged = syncState.user?.id !== state.user?.id;
+  const controlsChanged = syncState.canEdit !== state.canEdit;
+  const assignmentsChanged = assignments.size !== state.assignments.size ||
+    [...state.assignments].some(([id, voice]) => assignments.get(id) !== voice);
+  syncState = state;
+  assignments = state.assignments;
+  if (accountsChanged) {
+    batchVoice.value = "";
+    setAuthMessage("");
+  }
+  authPanel.hidden = state.phase !== "signed-out";
+  signoutButton.hidden = !state.user;
+  importButton.hidden = !state.user;
+  exportButton.hidden = !state.user;
+  importButton.disabled = !state.canEdit;
+  exportButton.disabled = !state.canEdit;
+  batchVoice.disabled = !state.canEdit;
+  syncRetry.hidden = state.phase !== "failed";
+  saveNote.dataset.phase = state.phase;
+
+  const pending = state.pendingCount ? ` · ${state.pendingCount}건 대기` : "";
+  const messages = {
+    loading: "마지막 배정 불러오는 중",
+    "signed-out": "로그인 후 보이스 배정 가능",
+    config: "동기화 연결 정보 없음",
+    offline: `오프라인${pending}`,
+    failed: `서버 연결 실패${pending}`,
+    saving: `${state.pendingCount}건 저장 중`,
+    saved: "클라우드 저장 완료",
+  };
+  const note = messages[state.phase] + (state.volatileCount ? " · 이 탭에만 대기" : "");
+  if (saveNote.lastChild.textContent !== note) {
+    saveNote.lastChild.textContent = note;
+  }
+
+  const legacyCount = state.canMigrate
+    ? [...legacyAssignments.keys()].filter((id) => !state.knownIds.has(id)).length
+    : 0;
+  legacyPanel.hidden = legacyCount === 0;
+  if (legacyCount) {
+    byId("legacy-message").textContent = `이 브라우저에 있던 ${legacyCount}명의 배정을 가져올 수 있습니다. 클라우드의 기존 배정과 해제 기록을 우선합니다.`;
+  }
+  if (assignmentsChanged || controlsChanged || accountsChanged) {
+    renderDetail({ preserveDraft: !accountsChanged });
+    for (const list of lists) {
+      renderList(list);
     }
   }
 }
 
-function saveAssignments(next) {
-  assignments = next;
-  try {
-    localStorage.setItem(storageKey, JSON.stringify(Object.fromEntries(next)));
-    if (!storageAvailable) {
-      const saveNote = document.querySelector(".save-note");
-      saveNote.removeAttribute("data-unavailable");
-      saveNote.lastChild.textContent = "이 브라우저에 저장";
-    }
-    storageAvailable = true;
-  } catch {
-    setStorageUnavailable("저장 실패 · 백업 필요");
+function setAuthMessage(message, error = false) {
+  authMessage.textContent = message;
+  authMessage.hidden = !message;
+  authMessage.toggleAttribute("data-error", error);
+}
+
+function setAuthMode(mode) {
+  authMode = mode;
+  const creating = authMode === "sign-up";
+  authPassword.autocomplete = creating ? "new-password" : "current-password";
+  authPassword.minLength = creating ? 8 : 0;
+  authSubmit.textContent = creating ? "계정 만들기" : "로그인";
+  authModeButton.textContent = creating ? "로그인으로 돌아가기" : "계정 만들기";
+  byId("sync-title").textContent = creating ? "보이스 배정 계정 만들기" : "보이스 배정 동기화";
+}
+
+const authErrors = {
+  email_address_not_authorized: "Supabase 프로젝트에 연결된 이메일로 가입해 주세요.",
+  email_not_confirmed: "받은 편지함에서 인증 이메일을 확인한 뒤 로그인해 주세요.",
+  invalid_credentials: "이메일이나 비밀번호를 확인해 주세요.",
+  over_email_send_rate_limit: "이메일 전송 한도에 도달했습니다. 잠시 뒤 다시 시도해 주세요.",
+  signup_disabled: "이 사이트에서 새 계정을 만들 수 없습니다. 기존 계정으로 로그인해 주세요.",
+  user_already_exists: "이미 가입된 이메일입니다. 로그인해 주세요.",
+  weak_password: "비밀번호는 8자 이상으로 입력해 주세요.",
+};
+
+async function submitAuth(event) {
+  event.preventDefault();
+  if (authBusy) {
+    return;
   }
-  return storageAvailable;
+  authBusy = true;
+  authSubmit.disabled = true;
+  authModeButton.disabled = true;
+  const creating = authMode === "sign-up";
+  setAuthMessage(creating ? "계정 확인 중…" : "로그인 중…");
+  try {
+    const { data, error } = await (creating ? voiceSync.signUp : voiceSync.signIn)(
+      authEmail.value.trim(), authPassword.value,
+    );
+    if (error) {
+      throw error;
+    }
+    authPassword.value = "";
+    if (creating && !data.session) {
+      setAuthMode("sign-in");
+      setAuthMessage("인증 이메일을 확인한 뒤 같은 계정으로 로그인해 주세요.");
+    }
+  } catch (error) {
+    setAuthMessage(authErrors[error.code] || "인증 서버에 연결하지 못했습니다. 잠시 뒤 다시 시도해 주세요.", true);
+  } finally {
+    authBusy = false;
+    authSubmit.disabled = false;
+    authModeButton.disabled = false;
+  }
 }
 
 function makeFilter(details, choices) {
@@ -195,6 +291,7 @@ function makeCard(actor, mode) {
   } else {
     const action = mode === "assigned" ? "배정 해제" : "배정";
     card.setAttribute("aria-label", `${actor.name}, ${actor.meta}, 보이스 ${action}`);
+    card.disabled = !syncState.canEdit;
   }
 
   const image = document.createElement("img");
@@ -218,7 +315,7 @@ function makeCard(actor, mode) {
   return card;
 }
 
-function renderList(list, { append = false, focusIndex = null } = {}) {
+function renderList(list, { append = false } = {}) {
   const [genders, ages, states] = list.filters.map((filter) => filter.read());
   const words = searchText(list.search.value.trim()).split(/\s+/).filter(Boolean);
   const voice = currentVoice();
@@ -263,13 +360,9 @@ function renderList(list, { append = false, focusIndex = null } = {}) {
   } else {
     list.grid.replaceChildren(fragment);
   }
-  if (focusIndex !== null) {
-    const next = list.grid.children[Math.min(focusIndex, list.grid.childElementCount - 1)] || list.search;
-    next.focus({ preventScroll: true });
-  }
 }
 
-function renderDetail() {
+function renderDetail({ preserveDraft = false } = {}) {
   const actor = actorsById.get(selectedId);
   emptyDetail.hidden = Boolean(actor);
   detailContent.hidden = !actor;
@@ -282,31 +375,27 @@ function renderDetail() {
   byId("detail-name").textContent = actor.name;
   byId("detail-meta").textContent = actor.meta;
   byId("detail-description").textContent = actor.description;
-  detailVoice.value = assignments.get(actor.id) || "";
-  byId("detail-remove").disabled = !assignments.has(actor.id);
+  const draft = detailVoice.value;
+  const isDraft = preserveDraft && detailVoice.dataset.actor === actor.id && draft !== detailVoice.defaultValue;
+  detailVoice.defaultValue = assignments.get(actor.id) || "";
+  detailVoice.value = isDraft ? draft : detailVoice.defaultValue;
+  detailVoice.dataset.actor = actor.id;
+  detailVoice.disabled = !syncState.canEdit;
+  byId("detail-save").disabled = !syncState.canEdit;
+  byId("detail-remove").disabled = !syncState.canEdit || !assignments.has(actor.id);
 }
 
 function applyAssignment(id, voice, origin = null, focusIndex = null) {
-  const next = new Map(assignments);
-  if (voice) {
-    next.set(id, voice);
-  } else {
-    next.delete(id);
+  if (!id || !voiceSync.queue([[id, voice || null]])) {
+    announce("보이스를 배정하려면 로그인하고 마지막 저장 상태를 먼저 불러와 주세요.", true);
+    return;
   }
-
-  const saved = saveAssignments(next);
   if (selectedId === id) {
     renderDetail();
   }
-  for (const list of lists) {
-    renderList(list, { focusIndex: list === origin ? focusIndex : null });
-  }
-
-  const name = actorsById.get(id).name;
-  if (saved) {
-    announce(voice ? `${name} 님에게 보이스를 배정했습니다.` : `${name} 님의 보이스 배정을 해제했습니다.`);
-  } else {
-    announce("화면에만 반영되었습니다. 배정을 보관하려면 백업을 다운로드하세요.", true);
+  if (origin) {
+    const nextCard = origin.grid.children[Math.min(focusIndex, origin.grid.childElementCount - 1)] || origin.search;
+    nextCard.focus({ preventScroll: true });
   }
 }
 
@@ -326,8 +415,8 @@ function activateCard(list, id, card) {
   }
 
   const voice = currentVoice();
-  if (!voice) {
-    announce("먼저 보이스 ID를 입력하세요.", true);
+  if (!isValidActorVoiceId(batchVoice.value)) {
+    announce("먼저 올바른 보이스 ID를 입력하세요.", true);
     batchVoice.focus();
     return;
   }
@@ -350,7 +439,8 @@ function selectTab(index, focus = false) {
 
 function importBackup(event) {
   const file = event.target.files[0];
-  if (!file || !ready) {
+  const owner = syncState.user?.id;
+  if (!file || !ready || !syncState.canEdit) {
     return;
   }
   importFile.value = "";
@@ -364,15 +454,11 @@ function importBackup(event) {
       throw new Error("현재 목록에 해당하는 인물이 백업에 없습니다.");
     }
 
-    const next = new Map([...assignments, ...clean]);
-    const saved = saveAssignments(next);
-    renderDetail();
-    for (const list of lists) {
-      renderList(list);
+    if (syncState.user?.id !== owner || !voiceSync.queue(clean)) {
+      throw new Error("현재 로그인 상태에서 백업을 적용할 수 없습니다.");
     }
     const skippedNote = skipped ? ` 현재 목록에 없는 ${skipped}명은 건너뛰었습니다.` : "";
-    const savedNote = saved ? "" : " 이 브라우저에 저장하지 못했습니다.";
-    announce(`인물 ${clean.size}명의 배정을 불러왔습니다.${skippedNote}${savedNote}`, !saved);
+    announce(`인물 ${clean.size}명의 배정을 불러왔습니다.${skippedNote}`);
   }).catch((error) => {
     announce(error instanceof SyntaxError ? "백업 JSON 파일을 읽을 수 없습니다." : error.message, true);
   });
@@ -446,7 +532,7 @@ async function init() {
       };
     });
     actorsById = new Map(actors.map((actor) => [actor.id, actor]));
-    loadAssignments();
+    loadLegacyAssignments();
     const ages = [...new Set(actors.map((actor) => actor.decade))]
       .sort((left, right) => Number(left) - Number(right))
       .map((decade) => [decade, `${decade}대`]);
@@ -461,8 +547,8 @@ async function init() {
     ready = true;
     byId("load-message").hidden = true;
     selectTab(activeTabIndex);
-    importButton.disabled = false;
-    exportButton.disabled = false;
+    voiceSync = createActorVoiceSync(new Set(actorsById.keys()), onSyncChange);
+    voiceSync.start();
   } catch (error) {
     byId("load-message").textContent = "인물 목록을 불러오지 못했습니다. 페이지를 새로고침해 주세요.";
     console.error("인물 목록 로드 실패", error);
@@ -472,8 +558,8 @@ async function init() {
 byId("detail-form").addEventListener("submit", (event) => {
   event.preventDefault();
   const voice = detailVoice.value.trim();
-  if (!voice) {
-    announce("저장할 보이스 ID를 입력하세요. 기존 배정은 배정 해제로 지울 수 있습니다.", true);
+  if (!isValidActorVoiceId(detailVoice.value)) {
+    announce("저장할 보이스 ID를 확인해 주세요. 기존 배정은 배정 해제로 지울 수 있습니다.", true);
     detailVoice.focus();
     return;
   }
@@ -498,14 +584,30 @@ batchVoice.addEventListener("input", () => {
 importButton.addEventListener("click", () => importFile.click());
 importFile.addEventListener("change", importBackup);
 exportButton.addEventListener("click", exportBackup);
-window.addEventListener("storage", (event) => {
-  if (event.key === storageKey && ready) {
-    assignments = new Map();
-    loadAssignments();
-    renderDetail();
-    for (const list of lists) {
-      renderList(list);
-    }
+authForm.addEventListener("submit", submitAuth);
+authModeButton.addEventListener("click", () => {
+  setAuthMode(authMode === "sign-up" ? "sign-in" : "sign-up");
+  setAuthMessage("");
+  authEmail.focus();
+});
+signoutButton.addEventListener("click", async () => {
+  if (syncState.volatileCount) {
+    announce("아직 저장되지 않은 변경이 있습니다. 저장이 완료된 뒤 로그아웃해 주세요.", true);
+    return;
+  }
+  const { error } = await voiceSync.signOut();
+  if (error) {
+    announce("로그아웃하지 못했습니다. 잠시 뒤 다시 시도해 주세요.", true);
+  }
+});
+syncRetry.addEventListener("click", () => voiceSync.retry());
+legacyButton.addEventListener("click", () => {
+  if (!syncState.canMigrate) {
+    return;
+  }
+  const eligible = [...legacyAssignments].filter(([id]) => !syncState.knownIds.has(id));
+  if (voiceSync.queue(eligible, { keepExisting: true })) {
+    announce(`기존 배정 ${eligible.length}건을 가져왔습니다. 저장 상태를 확인할 수 있습니다.`);
   }
 });
 

@@ -4,8 +4,12 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#f4f5fa">
+  <meta http-equiv="Content-Security-Policy" content="form-action 'none'">
   <title>인물 보이스 배정 · 기가막혀 인생극장</title>
   <link rel="stylesheet" href="styles.css">
+  <script defer src="supabase.min.js"></script>
+  <script defer src="voice-sync-config.js"></script>
+  <script defer src="voice-sync.js"></script>
   <script defer src="app.js"></script>
 </head>
 <body>
@@ -19,20 +23,43 @@
         </div>
       </div>
       <div class="backup-actions">
-        <button class="button secondary" id="import-button" type="button">백업 불러오기</button>
-        <button class="button secondary" id="export-button" type="button">백업 다운로드</button>
+        <button class="button secondary" id="import-button" type="button" hidden>백업 불러오기</button>
+        <button class="button secondary" id="export-button" type="button" hidden>백업 다운로드</button>
+        <button class="button secondary" id="signout-button" type="button" hidden>로그아웃</button>
         <input id="import-file" type="file" accept=".json,application/json" hidden>
       </div>
     </div>
   </header>
 
   <main class="workspace">
+    <section class="panel sync-panel" id="sync-panel" aria-labelledby="sync-title" hidden>
+      <div>
+        <h2 id="sync-title">보이스 배정 동기화</h2>
+        <p class="panel-hint">모든 기기에서 같은 계정으로 로그인하면 마지막 배정이 자동으로 표시됩니다.</p>
+      </div>
+      <form class="sync-form" id="sync-form" method="post">
+        <label for="sync-email">이메일<input id="sync-email" name="email" type="email" autocomplete="username" required></label>
+        <label for="sync-password">비밀번호<input id="sync-password" name="password" type="password" autocomplete="current-password" required></label>
+        <div class="form-actions">
+          <button class="button primary" id="auth-submit" type="submit">로그인</button>
+          <button class="button secondary" id="auth-mode" type="button">계정 만들기</button>
+        </div>
+      </form>
+      <p class="panel-hint sync-message" id="auth-message" role="status" hidden></p>
+    </section>
+    <section class="panel sync-panel legacy-panel" id="legacy-panel" aria-label="기존 브라우저 배정 가져오기" hidden>
+      <p id="legacy-message" class="panel-hint"></p>
+      <button class="button secondary" id="legacy-import" type="button">기존 배정 가져오기</button>
+    </section>
     <div class="navigation">
       <div class="tablist" role="tablist" aria-label="작업 선택">
         <button id="catalog-tab" class="tab" type="button" role="tab" aria-selected="true" aria-controls="catalog-panel" tabindex="0">전체 인물</button>
         <button id="assign-tab" class="tab" type="button" role="tab" aria-selected="false" aria-controls="assign-panel" tabindex="-1">보이스별 배정</button>
       </div>
-      <p class="save-note"><span aria-hidden="true"></span>이 브라우저에 저장</p>
+      <div class="sync-actions">
+        <p class="save-note" id="save-note" data-phase="loading" role="status"><span aria-hidden="true"></span>저장 상태 확인 중</p>
+        <button class="button secondary" id="sync-retry" type="button" hidden>다시 연결</button>
+      </div>
     </div>
 
     <p id="status" class="status" role="status" aria-live="polite" aria-atomic="true"></p>
